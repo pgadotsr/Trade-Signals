@@ -1,4 +1,4 @@
-from flask import Flask, request
+from flask import Flask, render_template_string, request
 import requests
 import pandas as pd
 import numpy as np
@@ -8,147 +8,63 @@ app = Flask(__name__)
 
 API_KEY = "A25IELIDXARY4KIX"
 
-# Asset symbols for Alpha Vantage
 ASSETS = {
     "Gold (XAU/USD)": "XAUUSD",
     "Silver (XAG/USD)": "XAGUSD",
-    "Oil (WTI/USD)": "WTIUSD",
     "EUR/USD": "EURUSD",
-    "GBP/USD": "GBPUSD"
+    "GBP/USD": "GBPUSD",
+    "USD/JPY": "USDJPY",
+    "Oil (WTI)": "WTIUSD"
 }
 
-def get_candles(symbol, interval, outputsize="compact"):
-    url = f"https://www.alphavantage.co/query"
-    params = {
-        "function": "FX_INTRADAY",
-        "from_symbol": symbol[:3],
-        "to_symbol": symbol[3:],
-        "interval": interval,
-        "apikey": API_KEY,
-        "outputsize": outputsize
-    }
-    r = requests.get(url)
-    data = r.json()
-    key = f"Time Series FX ({interval})"
-    if key not in data:
-        return None
-    df = pd.DataFrame(data[key]).T
-    df.columns = ["open", "high", "low", "close"]
-    df = df.astype(float)
-    return df.iloc[::-1]  # Oldest first
-
-def analyze(symbol):
-    # Fetch multiple timeframes
-    df_1h = get_candles(symbol, "60min", "full")
-    df_15m = get_candles(symbol, "15min", "full")
-    df_5m = get_candles(symbol, "5min", "full")
-    df_1m = get_candles(symbol, "1min", "full")
-
-    if None in (df_1h, df_15m, df_5m, df_1m):
-        return {"error": "Data fetch error"}
-
-    # Determine trends
-    def trend(df):
-        return "up" if df["close"].iloc[-1] > df["close"].mean() else "down"
-
-    trend_1h = trend(df_1h)
-    trend_15m = trend(df_15m)
-    trend_5m = trend(df_5m)
-    trend_1m = trend(df_1m)
-
-    # ATR filter on 15m
-    atr = ta.volatility.AverageTrueRange(
-        high=df_15m["high"], low=df_15m["low"], close=df_15m["close"], window=14
-    ).average_true_range().iloc[-1]
-
-    # Support/Resistance check
-    recent_high = df_15m["high"].tail(50).max()
-    recent_low = df_15m["low"].tail(50).min()
-
-    signal = "No Trade"
-    tp = None
-    sl = None
-
-    if trend_1h == trend_15m == trend_5m:
-        if trend_1m == trend_1h:
-            signal = "BUY" if trend_1h == "up" else "SELL"
-            last_price = df_1m["close"].iloc[-1]
-            if signal == "BUY":
-                tp = last_price + atr * 2
-                sl = last_price - atr
-            else:
-                tp = last_price - atr * 2
-                sl = last_price + atr
-
-    return {
-        "trend_1h": trend_1h,
-        "trend_15m": trend_15m,
-        "trend_5m": trend_5m,
-        "trend_1m": trend_1m,
-        "ATR": round(atr, 2),
-        "support": recent_low,
-        "resistance": recent_high,
-        "signal": signal,
-        "tp": tp,
-        "sl": sl
-    }
-
-@app.route("/", methods=["GET"])
-def home():
-    asset_name = request.args.get("asset", "Gold (XAU/USD)")
-    symbol = ASSETS[asset_name]
-    analysis = analyze(symbol)
-
-    html = """
-    <html>
-    <head>
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Trading Signal Dashboard</title>
     <meta http-equiv="refresh" content="60">
     <style>
-        body { font-family: Arial; max-width: 600px; margin: auto; padding: 20px; }
-        h1 { text-align: center; }
-        .signal { font-size: 1.5em; font-weight: bold; padding: 10px; border-radius: 5px; }
-        .buy { background-color: #d4edda; color: #155724; }
-        .sell { background-color: #f8d7da; color: #721c24; }
-        .neutral { background-color: #e2e3e5; color: #383d41; }
-        select { font-size: 1em; padding: 5px; }
+        body { font-family: Arial; text-align: center; }
+        h1 { color: #333; }
+        select { font-size: 16px; padding: 5px; }
+        .signal { font-size: 24px; font-weight: bold; margin-top: 20px; }
+        .tp-sl { font-size: 28px; font-weight: bold; margin-top: 10px; color: darkblue; }
+        .notes { font-size: 18px; margin-top: 15px; color: gray; }
     </style>
-    </head>
-    <body>
-        <h1>Trading Dashboard</h1>
-        <form method="get">
-            <select name="asset" onchange="this.form.submit()">
-    """
-    for name in ASSETS:
-        selected = "selected" if name == asset_name else ""
-        html += f'<option {selected}>{name}</option>'
-    html += """
-            </select>
-        </form>
-    """
+</head>
+<body>
+    <h1>📊 Trading Signal Dashboard</h1>
+    <form method="get">
+        <label for="asset">Choose Asset:</label>
+        <select name="asset" id="asset" onchange="this.form.submit()">
+            {% for name in assets %}
+                <option value="{{ name }}" {% if name == selected_asset %}selected{% endif %}>{{ name }}</option>
+            {% endfor %}
+        </select>
+    </form>
+    <div class="signal">{{ signal }}</div>
+    <div class="tp-sl">TP: {{ tp }} | SL: {{ sl }}</div>
+    <div class="notes">{{ notes }}</div>
+    <p>Last updated: {{ updated }}</p>
+</body>
+</html>
+"""
 
-    if "error" in analysis:
-        html += f"<p>{analysis['error']}</p>"
-    else:
-        sig_class = "neutral"
-        if analysis["signal"] == "BUY":
-            sig_class = "buy"
-        elif analysis["signal"] == "SELL":
-            sig_class = "sell"
+def get_data(symbol, interval):
+    url = f"https://www.alphavantage.co/query?function=FX_INTRADAY&from_symbol={symbol[:3]}&to_symbol={symbol[3:]}&interval={interval}min&apikey={API_KEY}&outputsize=compact"
+    r = requests.get(url)
+    data = r.json()
+    if "Time Series FX" not in data:
+        return None
+    df = pd.DataFrame(data[f"Time Series FX ({interval}min)"]).T
+    df = df.rename(columns={
+        "1. open": "open",
+        "2. high": "high",
+        "3. low": "low",
+        "4. close": "close"
+    }).astype(float)
+    df.index = pd.to_datetime(df.index)
+    return df.sort_index()
 
-        html += f"""
-        <p>1H Trend: {analysis['trend_1h']}</p>
-        <p>15M Trend: {analysis['trend_15m']}</p>
-        <p>5M Trend: {analysis['trend_5m']}</p>
-        <p>1M Confirmation: {analysis['trend_1m']}</p>
-        <p>ATR (15M): {analysis['ATR']}</p>
-        <p>Support: {analysis['support']}</p>
-        <p>Resistance: {analysis['resistance']}</p>
-        <div class="signal {sig_class}">Signal: {analysis['signal']}</div>
-        <p>Take Profit: {analysis['tp']}</p>
-        <p>Stop Loss: {analysis['sl']}</p>
-        """
-    html += "</body></html>"
-    return html
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+def atr_filter(df):
+    atr =
