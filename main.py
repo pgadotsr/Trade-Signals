@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Live Trading Signals</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        select, button {
+            font-size: 1.2em;
+            margin: 10px;
+            padding: 8px;
+        }
+        .signal {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            background-color: white;
+            box-shadow: 0px 0px 10px rgba(0,0,0,0.1);
+        }
+        .buy { color: green; font-weight: bold; }
+        .sell { color: red; font-weight: bold; }
+        .hold { color: gray; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h2>Live Trading Signals</h2>
+
+    <label for="asset">Choose Asset:</label>
+    <select id="asset">
+        <option value="XAU/USD">Gold (XAU/USD)</option>
+        <option value="XAG/USD">Silver (XAG/USD)</option>
+        <option value="GBP/USD">GBP/USD</option>
+        <option value="EUR/USD">EUR/USD</option>
+        <option value="CL=F">WTI Crude Oil</option>
+        <option value="BZ=F">Brent Crude Oil</option>
+    </select>
+
+    <div class="signal" id="signalBox">
+        <p>Price: <span id="price">-</span></p>
+        <p>Signal: <span id="signal">-</span></p>
+        <p>Confidence: <span id="confidence">-</span>%</p>
+        <p>Take Profit: <span id="tp">-</span></p>
+        <p>Stop Loss: <span id="sl">-</span></p>
+    </div>
+
+    <script>
+        let ws;
+        const assetSelect = document.getElementById("asset");
+
+        function connectWS() {
+            if (ws) ws.close();
+            const asset = assetSelect.value;
+            ws = new WebSocket(`wss://YOUR-BACKEND-URL/ws/${encodeURIComponent(asset)}`);
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                document.getElementById("price").innerText = data.price.toFixed(3);
+                document.getElementById("signal").innerText = data.signal;
+                document.getElementById("confidence").innerText = data.confidence;
+                document.getElementById("tp").innerText = data.tp ? data.tp.toFixed(3) : "-";
+                document.getElementById("sl").innerText = data.sl ? data.sl.toFixed(3) : "-";
+
+                const signalElem = document.getElementById("signal");
+                signalElem.className = data.signal.toLowerCase();
+            };
+        }
+
+        assetSelect.addEventListener("change", connectWS);
+        connectWS();
+    </script>
+</body>
+</html>
