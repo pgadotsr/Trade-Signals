@@ -1,6 +1,5 @@
-fastapi
-uvicorn
-httpx
+flask
 requests
 pandas
 numpy
+ta
