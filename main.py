@@ -1,31 +1,38 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse
+import requests
+import os
 
 app = FastAPI()
 
-@app.get("/", response_class=HTMLResponse)
-async def home():
-    return """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Trade Signals</title>
-        <style>
-            body {
-                font-family: Arial, sans-serif;
-                background-color: #f4f4f4;
-                margin: 0;
-                padding: 20px;
-            }
-            h1 {
-                color: #333;
-            }
-        </style>
-    </head>
-    <body>
-        <h1>Welcome to Trade Signals</h1>
-        <p>Your API is running successfully.</p>
-    </body>
-    </html>
-    """
+API_KEY = os.getenv("API_KEY", "YOUR_API_KEY_HERE")
+BASE_URL = "https://finnhub.io/api/v1/quote"
 
+ASSETS = {
+    "Gold": "GC=F",
+    "Silver": "SI=F",
+    "GBP/USD": "GBPUSD=X",
+    "EUR/USD": "EURUSD=X",
+    "Bitcoin": "BTC-USD",
+    "Tesla": "TSLA"
+}
+
+@app.get("/api/signal")
+def get_signal(asset: str = Query(...)):
+    if asset not in ASSETS:
+        return {"error": "Invalid asset"}
+
+    symbol = ASSETS[asset]
+    response = requests.get(f"{BASE_URL}?symbol={symbol}&token={API_KEY}")
+    data = response.json()
+
+    price = data.get("c", 0)
+    direction = "Buy" if price % 2 > 1 else "Sell"
+    take_profit = round(price * (1.02 if direction == "Buy" else 0.98), 2)
+
+    return {
+        "asset": asset,
+        "price": price,
+        "direction": direction,
+        "take_profit": take_profit
+    }
