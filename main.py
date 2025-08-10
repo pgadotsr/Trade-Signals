@@ -313,6 +313,36 @@ def api_signal():
         return {"error":"unknown asset"}, 400
     return analyze(ASSETS[asset])
 
+import os
+import requests
+from flask import Flask, jsonify
+
+app = Flask(__name__)
+
+ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
+
+@app.route("/test-alpha")
+def test_alpha():
+    symbol = "XAUUSD"  # Gold price in USD
+    interval = "1min"
+
+    url = (
+        f"https://www.alphavantage.co/query"
+        f"?function=TIME_SERIES_INTRADAY"
+        f"&symbol={symbol}"
+        f"&interval={interval}"
+        f"&apikey={ALPHA_VANTAGE_API_KEY}"
+    )
+
+    r = requests.get(url)
+    try:
+        data = r.json()
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+    return jsonify(data)
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
 # ---------------------------------------------------------
