@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>OANDA Trade Signals</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background-color: #121212; color: white; }
+        select { font-size: 1rem; margin: 1rem; }
+        .signal { font-weight: bold; font-size: 1.5rem; }
+        .buy { color: lime; }
+        .sell { color: red; }
+        canvas { background: white; border-radius: 8px; padding: 10px; }
+    </style>
+</head>
+<body>
+    <h1>OANDA Trade Signals</h1>
+
+    <select id="instrumentSelect"></select>
+    <p class="signal" id="signalText">Loading...</p>
+
+    <canvas id="chartCanvas" width="800" height="400"></canvas>
+
+    <script>
+        const instruments = {{ instruments | tojson }};
+        const selectEl = document.getElementById('instrumentSelect');
+        const signalEl = document.getElementById('signalText');
+        const ctx = document.getElementById('chartCanvas').getContext('2d');
+
+        let chart;
+
+        instruments.forEach(instr => {
+            const opt = document.createElement('option');
+            opt.value = instr;
+            opt.textContent = instr;
+            selectEl.appendChild(opt);
+        });
+
+        function fetchData() {
+            const instrument = selectEl.value || instruments[0];
+            fetch(`/data/${instrument}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (!data.data) return;
+                    const labels = data.data.map(d => new Date(d.time).toLocaleTimeString());
+                    const prices = data.data.map(d => d.close);
+
+                    if (chart) chart.destroy();
+                    chart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: instrument,
+                                data: prices,
+                                borderColor: 'blue',
+                                fill: false,
+                                tension: 0.1
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false
+                        }
+                    });
+
+                    if (data.signal_5) {
+                        signalEl.textContent = `Signal: ${data.signal_5}`;
+                        signalEl.className = `signal ${data.signal_5.toLowerCase()}`;
+                    } else {
+                        signalEl.textContent = "No signal";
+                        signalEl.className = "signal";
+                    }
+                });
+        }
+
+        selectEl.addEventListener('change', fetchData);
+
+        // Refresh every 5 seconds
+        setInterval(fetchData, 5000);
+        fetchData();
+    </script>
+</body>
+</html>
