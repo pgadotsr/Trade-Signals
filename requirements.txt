@@ -1,6 +1,4 @@
-flask
-requests
+Flask>=2.0
 pandas
-numpy
-ta
-gunicorn
+oandapyV20
+requests
