@@ -1,6 +1,3 @@
-flask
+Flask
 requests
-pandas
-numpy
-ta
-gunicorn
+statistics
