@@ -1,4 +1,6 @@
-Flask
-gunicorn
+flask
+requests
 pandas
-oandapyV20
+numpy
+ta
+gunicorn
