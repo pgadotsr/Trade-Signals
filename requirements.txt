@@ -2,3 +2,4 @@ Flask>=2.0
 pandas
 oandapyV20
 requests
+gunicorn
