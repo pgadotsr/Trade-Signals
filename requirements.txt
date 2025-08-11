@@ -1,5 +1,5 @@
-Flask>=2.0
-pandas
-oandapyV20
-requests
-gunicorn
+Flask==3.1.1
+pandas==2.3.1
+oandapyV20==0.7.2
+requests==2.32.4
+gunicorn==23.0.0
