@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Trade Signals</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f5f5f5;
+            text-align: center;
+            padding: 20px;
+        }
+        select, button {
+            font-size: 16px;
+            padding: 10px;
+            margin: 5px;
+        }
+        #result {
+            margin-top: 20px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 5px rgba(0,0,0,0.2);
+            display: inline-block;
+            min-width: 200px;
+        }
+    </style>
+</head>
+<body>
+    <h1>📊 Trade Signal Dashboard</h1>
+    <select id="asset">
+        <option value="Gold">Gold</option>
+        <option value="Silver">Silver</option>
+        <option value="GBP/USD">GBP/USD</option>
+        <option value="EUR/USD">EUR/USD</option>
+        <option value="Bitcoin">Bitcoin</option>
+        <option value="Tesla">Tesla</option>
+    </select>
+    <button onclick="getSignal()">Get Signal</button>
+
+    <div id="result">Select an asset to view signal.</div>
+
+    <script>
+        async function getSignal() {
+            const asset = document.getElementById('asset').value;
+            const res = await fetch(`/api/signal?asset=${encodeURIComponent(asset)}`);
+            const data = await res.json();
+
+            if (data.error) {
+                document.getElementById('result').innerHTML = `<b>Error:</b> ${data.error}`;
+                return;
+            }
+
+            document.getElementById('result').innerHTML = `
+                <h2>${data.asset}</h2>
+                <p>Price: $${data.price}</p>
+                <p>Direction: <b>${data.direction}</b></p>
+                <p>Take Profit: $${data.take_profit}</p>
+            `;
+        }
+    </script>
+</body>
+</html>
