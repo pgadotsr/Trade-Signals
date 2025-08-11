@@ -1,6 +1,9 @@
-flask
-requests
-pandas
-numpy
-ta
-gunicorn
+Flask==3.1.1
+gunicorn==23.0.0
+oandapyV20==0.7.2
+pandas==2.3.1
+numpy==2.3.2
+requests==2.32.4
+python-dateutil==2.9.0.post0
+pytz==2025.2
+tzdata==2025.2
