@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Trade Signal Dashboard</title>
+  <style>
+    :root { --bg:#0e1116; --panel:#0f141c; --text:#e6e6e6; --border:#222; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family:system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    header { padding:12px 16px; display:flex; gap:10px; align-items:center; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+    select, button { background:#1a1f28; color:var(--text); border:1px solid #333; padding:8px 10px; border-radius:8px; font-size:14px; }
+    button.active { border-color:#6ea8fe; }
+    #chart { height:560px; margin:12px 16px; }
+    #panel { margin:12px 16px; background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:12px; display:flex; gap:16px; flex-wrap:wrap; }
+    .stat { background:#121826; border:1px solid #1f2633; padding:10px 12px; border-radius:10px; }
+    .good { color:#1ad37a; } .bad { color:#ff5d5d; }
+    .meta { margin:0 16px; opacity:.8; }
+    #error { margin:12px 16px; display:none; background:#2a1111; border:1px solid #552222; padding:10px; border-radius:8px; white-space:pre-wrap; }
+  </style>
+  <!-- Pin Lightweight Charts to a known-good version -->
+  <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+  <header>
+    <h3 style="margin:0 12px 0 0;">📊 Trade Signal Dashboard</h3>
+    <label>Asset:
+      <select id="asset">
+        <option>EUR/USD</option>
+        <option>GBP/USD</option>
+        <option>Gold</option>
+        <option>Silver</option>
+        <option>Bitcoin</option>
+        <option>Tesla</option>
+      </select>
+    </label>
+    <label>Period:
+      <select id="period">
+        <option value="1m">1m</option>
+        <option value="5m">5m</option>
+        <option value="15m" selected>15m</option>
+      </select>
+    </label>
+    <button class="range" data-range="1D">1 Day</button>
+    <button class="range" data-range="1W">1 Week</button>
+    <button class="range" data-range="1M">1 Month</button>
+    <label style="margin-left:12px;"><input id="demo" type="checkbox"> Demo mode</label>
+    <div style="flex:1"></div>
+    <span class="meta">Auto-refresh: 5s</span>
+  </header>
+
+  <div id="error"></div>
+  <div id="chart"></div>
+
+  <div id="panel">
+    <div class="stat">Direction: <b id="dir">—</b></div>
+    <div class="stat">Price: <b id="price">—</b></div>
+    <div class="stat">TP: <b id="tp">—</b></div>
+    <div class="stat">SL: <b id="sl">—</b></div>
+    <div class="stat">R:R: <b id="rr">—</b></div>
+    <div class="meta">Bars: <b id="barCount">0</b> • Last bar: <b id="lastTime">—</b></div>
+  </div>
+
+  <script>
+    // Elements
+    const el = id => document.getElementById(id);
+    const assetSel = el('asset'), periodSel = el('period'), demoChk = el('demo');
+    const rangeBtns = Array.from(document.querySelectorAll('button.range'));
+    const errBox = el('error');
+    const dirEl = el('dir'), priceEl = el('price'), tpEl = el('tp'), slEl = el('sl'), rrEl = el('rr');
+    const barCountEl = el('barCount'), lastTimeEl = el('lastTime');
+
+    // Chart
+    const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+      layout:{ background:{ type:'solid', color:'#0e1116' }, textColor:'#d0d0d0' },
+      rightPriceScale:{ borderColor:'#2a2f3a' },
+      timeScale:{ borderColor:'#2a2f3a' },
+      grid:{ horzLines:{ color:'#1a1f28' }, vertLines:{ color:'#1a1f28' } }
+    });
+    const candles = chart.addCandlestickSeries();
+    let nyLine = null;
+    const fvgGreen = chart.addAreaSeries({ topColor:'rgba(28,190,96,.10)', bottomColor:'rgba(28,190,96,.10)', lineColor:'rgba(0,0,0,0)', lineWidth:1 });
+    const fvgRed   = chart.addAreaSeries({ topColor:'rgba(255,77,77,.12)', bottomColor:'rgba(255,77,77,.12)', lineColor:'rgba(0,0,0,0)', lineWidth:1 });
+    const swingHighs = chart.addLineSeries({ lineWidth:1 });
+    const swingLows  = chart.addLineSeries({ lineWidth:1 });
+
+    // State
+    let currentRange = '1D';
+    let timer = null;
+
+    function setRange(r){
+      currentRange = r;
+      rangeBtns.forEach(b => b.classList.toggle('active', b.dataset.range===r));
+      refresh();
+    }
+
+    rangeBtns.forEach(b => b.addEventListener('click', () => setRange(b.dataset.range)));
+    assetSel.addEventListener('change', refresh);
+    periodSel.addEventListener('change', refresh);
+    demoChk.addEventListener('change', refresh);
+    window.addEventListener('resize', () => chart.timeScale().fitContent());
+
+    async function refresh(){
+      try{
+        errBox.style.display='none'; errBox.textContent='';
+        const url = buildUrl();
+        const res = await fetch(url, { cache:'no-store' });
+        const data = await res.json();
+
+        // Panel
+        dirEl.textContent = data.direction || '—';
+        dirEl.className = 'stat ' + (data.direction==='Buy'?'good':(data.direction==='Sell'?'bad':'')); 
+        priceEl.textContent = data.price!=null ? Number(data.price).toFixed(5) : '—';
+        tpEl.textContent = data.take_profit!=null ? Number(data.take_profit).toFixed(5) : '—';
+        slEl.textContent = data.stop_loss!=null ? Number(data.stop_loss).toFixed(5) : '—';
+        rrEl.textContent = data.risk_reward!=null ? data.risk_reward : '—';
+
+        // Candles
+        const bars = (data.ohlc||[]).map(d => ({
+          time:Number(d.time), open:Number(d.open), high:Number(d.high), low:Number(d.low), close:Number(d.close)
+        }));
+        candles.setData(bars);
+        chart.timeScale().fitContent();
+        barCountEl.textContent = bars.length;
+        lastTimeEl.textContent = bars.length ? new Date(bars[bars.length-1].time*1000).toLocaleString() : '—';
+
+        // NY AM High (thin dashed yellow with label)
+        if(nyLine){ candles.removePriceLine(nyLine); nyLine = null; }
+        if(data.ny_am_high!=null){
+          nyLine = candles.createPriceLine({
+            price:Number(data.ny_am_high),
+            color:'#ffda6a',
+            lineWidth:1,
+            lineStyle:2,
+            axisLabelVisible:true,
+            title:'NY AM High'
+          });
+        }
+
+        // FVG shading
+        function fvgToAreaPoints(list){
+          const pts = [];
+          (list||[]).forEach(g => {
+            const s = Number(g.start), e = Number(g.end), lo = Number(g.low), hi = Number(g.high);
+            pts.push({ time:s, value:lo });
+            pts.push({ time:s, value:hi });
+            pts.push({ time:e, value:hi });
+            pts.push({ time:e, value:lo });
+          });
+          return pts;
+        }
+        const bulls = (data.fvgs||[]).filter(x=>x.type==='bullish');
+        const bears = (data.fvgs||[]).filter(x=>x.type==='bearish');
+        fvgGreen.setData(fvgToAreaPoints(bulls));
+        fvgRed.setData(fvgToAreaPoints(bears));
+
+        // Swing points (as thin guide lines)
+        swingHighs.setData((data.swings?.highs||[]).map(p=>({ time:Number(p.time), value:Number(p.price) })));
+        swingLows.setData((data.swings?.lows||[]).map(p=>({ time:Number(p.time), value:Number(p.price) })));
+
+      }catch(e){
+        errBox.style.display='block';
+        errBox.textContent = 'API/Parse error: ' + e;
+      }
+    }
+
+    function buildUrl(){
+      const asset = assetSel.value;
+      const timeframe = periodSel.value; // backend expects "timeframe"
+      const demo = demoChk.checked ? '&demo=1' : '';
+      return `/api/signal?asset=${encodeURIComponent(asset)}&timeframe=${encodeURIComponent(timeframe)}&range=${encodeURIComponent(currentRange)}${demo}`;
+    }
+
+    // Init
+    setRange('1D');          // default zoom
+    timer = setInterval(refresh, 5000);  // 5s auto-refresh
+    refresh();
+  </script>
+</body>
+</html>
