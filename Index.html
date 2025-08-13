@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Trade Signals — Candles + FVG</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 0; background:#0e1116; color:#e6e6e6; }
+    header { padding: 12px 16px; display:flex; flex-wrap: wrap; gap:8px; align-items:center; border-bottom:1px solid #222; }
+    select, button { background:#1a1f28; color:#e6e6e6; border:1px solid #333; padding:8px 10px; border-radius:6px; font-size:14px;}
+    button.active { border-color:#6ea8fe; }
+    #chart { height: 520px; }
+    #chart, #panel { margin: 12px 16px; }
+    #panel { background:#0f141c; border:1px solid #222; border-radius:10px; padding:12px; display:flex; gap:18px; align-items:center; flex-wrap:wrap;}
+    .stat { background:#121826; border:1px solid #1f2633; padding:10px 12px; border-radius:8px; }
+    .stat b { color:#f0f2f5; }
+    .good { color:#1ad37a; } .bad { color:#ff5d5d; }
+    .note { opacity:.8 }
+  </style>
+  <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+  <header>
+    <h3 style="margin:0 16px 0 0;">📊 Trade Signal Dashboard</h3>
+    <label>Asset:
+      <select id="asset">
+        <option>Gold</option>
+        <option>Silver</option>
+        <option>GBP/USD</option>
+        <option>EUR/USD</option>
+        <option>Bitcoin</option>
+        <option>Tesla</option>
+      </select>
+    </label>
+    <label>Period:
+      <select id="period">
+        <option value="1m">1m</option>
+        <option value="5m">5m</option>
+        <option value="15m" selected>15m</option>
+      </select>
+    </label>
+    <div>
+      <button class="range" data-range="1D">1 Day</button>
+      <button class="range" data-range="1W">1 Week</button>
+      <button class="range" data-range="1M">1 Month</button>
+    </div>
+    <div style="flex:1"></div>
+    <span class="note">Auto-refresh: 5s</span>
+  </header>
+
+  <div id="chart"></div>
+
+  <div id="panel">
+    <div class="stat">Direction: <b id="dir">—</b></div>
+    <div class="stat">Price: <b id="price">—</b></div>
+    <div class="stat">TP: <b id="tp">—</b></div>
+    <div class="stat">SL: <b id="sl">—</b></div>
+    <div class="stat">R:R: <b id="rr">—</b></div>
+  </div>
+
+  <script>
+    const el = (id) => document.getElementById(id);
+    const assetSel = el('asset');
+    const periodSel = el('period');
+    const rangeBtns = Array.from(document.querySelectorAll('button.range'));
+
+    // chart
+    const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+      layout: { background: { type: 'solid', color: '#0e1116' }, textColor: '#d0d0d0' },
+      rightPriceScale: { borderColor: '#2a2f3a' },
+      timeScale: { borderColor: '#2a2f3a' },
+      grid: { horzLines: { color: '#1a1f28' }, vertLines: { color: '#1a1f28' } }
+    });
+    const candleSeries = chart.addCandlestickSeries();
+    // NY AM High line (we'll update the price & title each refresh)
+    let nyLine = null;
+    // FVGs: we draw as boxes via price lines hack (for performance, we use line series as filled areas)
+    const fvgGreen = chart.addAreaSeries({ topColor:'rgba(28, 190, 96, 0.10)', bottomColor:'rgba(28, 190, 96, 0.10)', lineColor:'rgba(0,0,0,0)', lineWidth:1 });
+    const fvgRed = chart.addAreaSeries({ topColor:'rgba(255, 77, 77, 0.12)', bottomColor:'rgba(255, 77, 77, 0.12)', lineColor:'rgba(0,0,0,0)', lineWidth:1 });
+    // Swing highs/lows (lines)
+    const swingHighs = chart.addLineSeries({ lineWidth: 1 });
+    const swingLows  = chart.addLineSeries({ lineWidth: 1 });
+
+    let currentRange = '1D';
+    let timer = null;
+
+    function setActiveRange(range){
+      currentRange = range;
+      rangeBtns.forEach(b => b.classList.toggle('active', b.dataset.range===range));
+      refresh();
+    }
+    rangeBtns.forEach(b => b.addEventListener('click', ()=> setActiveRange(b.dataset.range)));
+
+    assetSel.addEventListener('change', refresh);
+    periodSel.addEventListener('change', refresh);
+
+    async function refresh(){
+      const asset = assetSel.value;
+      const tf = periodSel.value;
+      const url = `/api/signal?asset=${encodeURIComponent(asset)}&timeframe=${encodeURIComponent(tf)}&range=${encodeURIComponent(currentRange)}`;
+      try{
+        const res = await fetch(url);
+        const data = await res.json();
+        if(data.error){ console.error(data.error); return; }
+
+        // Panel
+        el('dir').textContent = data.direction || '—';
+        el('price').textContent = data.price ? data.price.toFixed(5) : '—';
+        el('tp').textContent = data.take_profit ? data.take_profit.toFixed(5) : '—';
+        el('sl').textContent = data.stop_loss ? data.stop_loss.toFixed(5) : '—';
+        el('rr').textContent = (data.risk_reward ?? '—');
+
+        // Candles
+        candleSeries.setData((data.ohlc||[]).map(d => ({ time:d.time, open:d.open, high:d.high, low:d.low, close:d.close })));
+
+        // NY AM High: dashed thin yellow with semi-transparent label
+        if(nyLine){ candleSeries.removePriceLine(nyLine); nyLine = null; }
+        if(data.ny_am_high){
+          nyLine = candleSeries.createPriceLine({
+            price: data.ny_am_high,
+            color: '#ffda6a',
+            lineWidth: 1,
+            lineStyle: 2, // dashed
+            axisLabelVisible: true,
+            title: 'NY AM High',
+          });
+        }
+
+        // FVG shading (we transform gaps into step-like area to show a filled rectangle from start to end times)
+        function fvgToAreaPoints(list){
+          // convert to 4 points per box (start at low, start at high, end at high, end at low)
+          const pts = [];
+          list.forEach(g => {
+            const s = g.start, e = g.end, lo = g.low, hi = g.high;
+            pts.push({ time:s, value:lo });
+            pts.push({ time:s, value:hi });
+            pts.push({ time:e, value:hi });
+            pts.push({ time:e, value:lo });
+          });
+          return pts;
+        }
+        const bulls = (data.fvgs||[]).filter(x=>x.type==='bullish');
+        const bears = (data.fvgs||[]).filter(x=>x.type==='bearish');
+        fvgGreen.setData(fvgToAreaPoints(bulls));
+        fvgRed.setData(fvgToAreaPoints(bears));
+
+        // Swings as tiny stepped lines
+        swingHighs.setData((data.swings?.highs||[]).map(p=>({ time:p.time, value:p.price })));
+        swingLows.setData((data.swings?.lows||[]).map(p=>({ time:p.time, value:p.price })));
+      }catch(err){
+        console.error(err);
+      }
+    }
+
+    // initial state
+    setActiveRange('1D');
+
+    // 5-second auto-refresh
+    function startTimer(){
+      if(timer) clearInterval(timer);
+      timer = setInterval(refresh, 5000);
+    }
+    startTimer();
+    refresh();
+  </script>
+</body>
+</html>
