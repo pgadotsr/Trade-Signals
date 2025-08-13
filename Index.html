@@ -1,208 +1,100 @@
-
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>Trade Signals — Debug 2</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Trade Signal Dashboard — Debug</title>
   <style>
-    body { font-family: system-ui, Arial, sans-serif; margin: 0; background:#0e1116; color:#e6e6e6; }
-    header { padding: 12px 16px; display:flex; flex-wrap: wrap; gap:8px; align-items:center; border-bottom:1px solid #222; }
-    select, button { background:#1a1f28; color:#e6e6e6; border:1px solid #333; padding:8px 10px; border-radius:6px; font-size:14px;}
-    button.active { border-color:#6ea8fe; }
-    #chart { height: 560px; }
-    #chart, #panel, #meta, #debug { margin: 12px 16px; }
-    #panel { background:#0f141c; border:1px solid #222; border-radius:10px; padding:12px; display:flex; gap:18px; align-items:center; flex-wrap:wrap;}
-    .stat { background:#121826; border:1px solid #1f2633; padding:10px 12px; border-radius:8px; }
-    .stat b { color:#f0f2f5; }
-    .good { color:#1ad37a; } .bad { color:#ff5d5d; }
-    .note { opacity:.8 }
-    #error { padding:10px 12px; border-radius:8px; background:#2a1111; border:1px solid #552222; display:none; white-space:pre-wrap; }
-    #debug pre { background:#0b0e14; border:1px solid #222; border-radius:8px; padding:8px; overflow:auto; }
-    #fetchUrl { word-break: break-all; opacity:.9 }
-    #status { margin:0 16px; opacity:.9 }
+    body { background: #111; color: white; font-family: sans-serif; padding: 10px; }
+    .error { background: #600; padding: 10px; margin-top: 10px; white-space: pre-wrap; }
+    pre { background: #222; padding: 10px; overflow-x: auto; }
   </style>
-  <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
-  <header>
-    <h3 style="margin:0 16px 0 0;">📊 Trade Signal Dashboard — Debug 2</h3>
-    <label>Asset:
-      <select id="asset">
-        <option>EUR/USD</option>
-        <option>GBP/USD</option>
-        <option>Gold</option>
-        <option>Silver</option>
-        <option>Bitcoin</option>
-        <option>Tesla</option>
-      </select>
-    </label>
-    <label>Period:
-      <select id="period">
-        <option value="1m">1m</option>
-        <option value="5m">5m</option>
-        <option value="15m" selected>15m</option>
-      </select>
-    </label>
-    <div>
-      <button class="range" data-range="1D">1 Day</button>
-      <button class="range" data-range="1W">1 Week</button>
-      <button class="range" data-range="1M">1 Month</button>
-    </div>
-    <label style="margin-left:12px;">
-      <input type="checkbox" id="demoToggle" checked> Demo mode
-    </label>
-    <div style="flex:1"></div>
-    <span class="note">Auto-refresh: 5s</span>
-  </header>
+  <h2>📊 Trade Signal Dashboard — Debug</h2>
+  <label><input type="checkbox" id="demoMode" checked> Demo mode</label>
+  <br><br>
+  Asset: 
+  <select id="asset">
+    <option>EUR/USD</option>
+    <option>GBP/USD</option>
+  </select>
+  Period:
+  <select id="period">
+    <option value="15m">15m</option>
+    <option value="1h">1h</option>
+  </select>
 
-  <div id="status">Status: script loaded</div>
-  <div id="meta">
-    Bars: <span id="barCount">0</span> • Last time: <span id="lastTime">—</span>
-  </div>
-  <div id="debug">
-    <div>Fetching URL: <span id="fetchUrl">—</span></div>
-    <div>Demo flag from API: <span id="demoFlag">—</span></div>
-    <div>API/JS error log:</div>
-    <div id="error"></div>
-    <div>First 3 bars:</div>
-    <pre id="barsPreview">—</pre>
-  </div>
-  <div id="chart"></div>
+  <p>Status: <span id="status">script starting…</span></p>
+  <p>Bars: <span id="barCount">-</span> • Last time: <span id="lastTime">-</span></p>
+  <p>Fetching URL: <span id="fetchUrl">-</span></p>
+  <p>Demo flag from API: <span id="apiDemo">-</span></p>
+  <p>API/JS error log:</p>
+  <div id="errorLog" class="error"></div>
+  <p>First 3 bars:</p>
+  <pre id="barsPreview">-</pre>
 
-  <div id="panel">
-    <div class="stat">Direction: <b id="dir">—</b></div>
-    <div class="stat">Price: <b id="price">—</b></div>
-    <div class="stat">TP: <b id="tp">—</b></div>
-    <div class="stat">SL: <b id="sl">—</b></div>
-    <div class="stat">R:R: <b id="rr">—</b></div>
-  </div>
+  <div id="chart" style="height:400px;"></div>
 
+  <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
   <script>
-    // Global error hook
-    window.onerror = function(message, source, lineno, colno, error){
-      const box = document.getElementById('error');
-      box.style.display = 'block';
-      box.textContent += `JS Error: ${message} at ${source}:${lineno}:${colno}\n`;
-      if(error && error.stack){ box.textContent += error.stack + "\n"; }
-    };
+    const statusEl = document.getElementById('status');
+    const barCountEl = document.getElementById('barCount');
+    const lastTimeEl = document.getElementById('lastTime');
+    const fetchUrlEl = document.getElementById('fetchUrl');
+    const apiDemoEl = document.getElementById('apiDemo');
+    const errorLogEl = document.getElementById('errorLog');
+    const barsPreviewEl = document.getElementById('barsPreview');
 
-    const el = (id) => document.getElementById(id);
-    const statusEl = el('status');
-    statusEl.textContent = 'Status: script running';
-
-    const assetSel = el('asset');
-    const periodSel = el('period');
-    const rangeBtns = Array.from(document.querySelectorAll('button.range'));
-    const demoToggle = el('demoToggle');
-    const errorBox = el('error');
-    const barCount = el('barCount');
-    const lastTime = el('lastTime');
-    const fetchUrlEl = el('fetchUrl');
-    const barsPreviewEl = el('barsPreview');
-    const demoFlagEl = el('demoFlag');
-
-    const chart = LightweightCharts.createChart(document.getElementById('chart'), {
-      layout: { background: { type: 'solid', color: '#0e1116' }, textColor: '#d0d0d0' },
-      rightPriceScale: { borderColor: '#2a2f3a' },
-      timeScale: { borderColor: '#2a2f3a' },
-      grid: { horzLines: { color: '#1a1f28' }, vertLines: { color: '#1a1f28' } }
-    });
-    const candleSeries = chart.addCandlestickSeries();
-
-    let nyLine = null;
-    const fvgGreen = chart.addAreaSeries({ topColor:'rgba(28, 190, 96, 0.10)', bottomColor:'rgba(28, 190, 96, 0.10)', lineColor:'rgba(0,0,0,0)', lineWidth:1 });
-    const fvgRed = chart.addAreaSeries({ topColor:'rgba(255, 77, 77, 0.12)', bottomColor:'rgba(255, 77, 77, 0.12)', lineColor:'rgba(0,0,0,0)', lineWidth:1 });
-    const swingHighs = chart.addLineSeries({ lineWidth: 1 });
-    const swingLows  = chart.addLineSeries({ lineWidth: 1 });
-
-    let currentRange = '1D';
-    let timer = null;
-
-    function setActiveRange(range){
-      currentRange = range;
-      rangeBtns.forEach(b => b.classList.toggle('active', b.dataset.range===range));
-      refresh();
+    function logError(err) {
+      errorLogEl.textContent = err.toString();
     }
-    rangeBtns.forEach(b => b.addEventListener('click', ()=> setActiveRange(b.dataset.range)));
 
-    assetSel.addEventListener('change', refresh);
-    periodSel.addEventListener('change', refresh);
-    demoToggle.addEventListener('change', refresh);
-    window.addEventListener('resize', () => chart.timeScale().fitContent());
+    async function fetchData() {
+      statusEl.textContent = "script running";
 
-    async function refresh(){
-      statusEl.textContent = 'Status: refresh() called';
-      const asset = assetSel.value;
-      const tf = periodSel.value;
-      const demo = demoToggle.checked ? '&demo=1' : '';
-      const url = `/api/signal?asset=${encodeURIComponent(asset)}&timeframe=${encodeURIComponent(tf)}&range=${encodeURIComponent(currentRange)}${demo}`;
+      const asset = document.getElementById('asset').value;
+      const period = document.getElementById('period').value;
+      const demo = document.getElementById('demoMode').checked;
+      const url = `/api/data?asset=${encodeURIComponent(asset)}&period=${encodeURIComponent(period)}&demo=${demo}`;
       fetchUrlEl.textContent = url;
 
-      try{
-        errorBox.style.display = 'none';
-        const res = await fetch(url, { cache: 'no-store' });
+      try {
+        const res = await fetch(url);
         const data = await res.json();
-        demoFlagEl.textContent = data.demo ? 'true' : 'false';
-        if(data.error){
-          errorBox.style.display = 'block';
-          errorBox.textContent += data.error + "\n";
+
+        apiDemoEl.textContent = data.demo || false;
+        barCountEl.textContent = data.ohlc?.length || 0;
+
+        if (data.ohlc?.length) {
+          lastTimeEl.textContent = data.ohlc[data.ohlc.length - 1].time;
+          barsPreviewEl.textContent = JSON.stringify(data.ohlc.slice(0, 3), null, 2);
         }
 
-        const bars = (data.ohlc||[]).map(d => ({
-          time: Number(d.time), open: Number(d.open),
-          high: Number(d.high), low: Number(d.low), close: Number(d.close)
-        }));
-        candleSeries.setData(bars);
-        chart.timeScale().fitContent();
-
-        barCount.textContent = bars.length;
-        lastTime.textContent = bars.length ? new Date(bars[bars.length-1].time*1000).toLocaleString() : '—';
-        barsPreviewEl.textContent = bars.length ? JSON.stringify(bars.slice(0,3), null, 2) : '—';
-
-        const dir = data.direction || '—';
-        el('dir').textContent = dir;
-        el('dir').className = 'stat ' + (dir==='Buy'?'good':(dir==='Sell'?'bad':''));
-        el('price').textContent = data.price != null ? Number(data.price).toFixed(5) : '—';
-        el('tp').textContent = data.take_profit != null ? Number(data.take_profit).toFixed(5) : '—';
-        el('sl').textContent = data.stop_loss != null ? Number(data.stop_loss).toFixed(5) : '—';
-        el('rr').textContent = (data.risk_reward ?? '—');
-
-        // Overlays
-        if(nyLine){ candleSeries.removePriceLine(nyLine); nyLine = null; }
-        if(data.ny_am_high != null){
-          nyLine = candleSeries.createPriceLine({ price: Number(data.ny_am_high), color: '#ffda6a', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'NY AM High' });
+        try {
+          const chart = LightweightCharts.createChart(document.getElementById('chart'), { width: 600, height: 400 });
+          if (chart.addCandlestickSeries) {
+            const candleSeries = chart.addCandlestickSeries();
+            candleSeries.setData(data.ohlc.map(b => ({
+              time: b.time,
+              open: b.open,
+              high: b.high,
+              low: b.low,
+              close: b.close
+            })));
+          } else {
+            throw new Error("Candlestick function missing in LightweightCharts");
+          }
+        } catch (chartErr) {
+          logError("JS Error: " + chartErr.message + "\n\n" + chartErr.stack);
         }
-        function fvgToAreaPoints(list){
-          const pts = [];
-          (list||[]).forEach(g => {
-            const s = Number(g.start), e = Number(g.end), lo = Number(g.low), hi = Number(g.high);
-            pts.push({ time:s, value:lo });
-            pts.push({ time:s, value:hi });
-            pts.push({ time:e, value:hi });
-            pts.push({ time:e, value:lo });
-          });
-          return pts;
-        }
-        const bulls = (data.fvgs||[]).filter(x=>x.type==='bullish');
-        const bears = (data.fvgs||[]).filter(x=>x.type==='bearish');
-        fvgGreen.setData(fvgToAreaPoints(bulls));
-        fvgRed.setData(fvgToAreaPoints(bears));
-        swingHighs.setData((data.swings?.highs||[]).map(p=>({ time:Number(p.time), value:Number(p.price) })));
-        swingLows.setData((data.swings?.lows||[]).map(p=>({ time:Number(p.time), value:Number(p.price) })));
-      }catch(err){
-        errorBox.style.display = 'block';
-        errorBox.textContent += String(err) + "\n";
+
+      } catch (err) {
+        logError("API fetch error: " + err);
       }
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
-      statusEl.textContent = 'Status: DOMContentLoaded, initializing';
-      setActiveRange('1D'); // triggers refresh
-      if(timer) clearInterval(timer);
-      timer = setInterval(refresh, 5000);
-      // Fallback call if above fails
-      setTimeout(() => { statusEl.textContent += ' | fallback refresh()'; refresh(); }, 500);
-    });
+    fetchData();
   </script>
 </body>
 </html>
