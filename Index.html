@@ -16,6 +16,8 @@
     .good { color:#1ad37a; } .bad { color:#ff5d5d; }
     .meta { margin:0 16px; opacity:.8; }
     #error { margin:12px 16px; display:none; background:#2a1111; border:1px solid #552222; padding:10px; border-radius:8px; white-space:pre-wrap; }
+    #debug { margin:0 16px 12px; opacity:.85; font-size:12px; }
+    #debug code { word-break:break-all; }
   </style>
   <!-- Pin Lightweight Charts to a known-good version -->
   <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
@@ -49,6 +51,7 @@
   </header>
 
   <div id="error"></div>
+  <div id="debug">Fetching: <code id="fetchUrl">—</code></div>
   <div id="chart"></div>
 
   <div id="panel">
@@ -65,7 +68,7 @@
     const el = id => document.getElementById(id);
     const assetSel = el('asset'), periodSel = el('period'), demoChk = el('demo');
     const rangeBtns = Array.from(document.querySelectorAll('button.range'));
-    const errBox = el('error');
+    const errBox = el('error'), fetchUrlEl = el('fetchUrl');
     const dirEl = el('dir'), priceEl = el('price'), tpEl = el('tp'), slEl = el('sl'), rrEl = el('rr');
     const barCountEl = el('barCount'), lastTimeEl = el('lastTime');
 
@@ -99,20 +102,43 @@
     demoChk.addEventListener('change', refresh);
     window.addEventListener('resize', () => chart.timeScale().fitContent());
 
+    function buildUrl(){
+      const asset = assetSel.value;
+      const timeframe = periodSel.value; // backend expects "timeframe"
+      const demo = demoChk.checked ? '&demo=1' : '';
+      return `/api/signal?asset=${encodeURIComponent(asset)}&timeframe=${encodeURIComponent(timeframe)}&range=${encodeURIComponent(currentRange)}${demo}`;
+    }
+
     async function refresh(){
       try{
         errBox.style.display='none'; errBox.textContent='';
         const url = buildUrl();
+        fetchUrlEl.textContent = url;
+
         const res = await fetch(url, { cache:'no-store' });
-        const data = await res.json();
+        const status = res.status;
+        const raw = await res.text();
+
+        let data;
+        try {
+          data = JSON.parse(raw);
+        } catch (e) {
+          // Show raw snippet so we can see proxy/splash/HTML errors
+          errBox.style.display='block';
+          errBox.textContent =
+            `API/Parse error (status ${status}): ${e}\n\n` +
+            `Raw response (first 300 chars):\n` +
+            raw.slice(0, 300);
+          return;
+        }
 
         // Panel
         dirEl.textContent = data.direction || '—';
-        dirEl.className = 'stat ' + (data.direction==='Buy'?'good':(data.direction==='Sell'?'bad':'')); 
+        dirEl.className = 'stat ' + (data.direction==='Buy'?'good':(data.direction==='Sell'?'bad':''));
         priceEl.textContent = data.price!=null ? Number(data.price).toFixed(5) : '—';
-        tpEl.textContent = data.take_profit!=null ? Number(data.take_profit).toFixed(5) : '—';
-        slEl.textContent = data.stop_loss!=null ? Number(data.stop_loss).toFixed(5) : '—';
-        rrEl.textContent = data.risk_reward!=null ? data.risk_reward : '—';
+        tpEl.textContent    = data.take_profit!=null ? Number(data.take_profit).toFixed(5) : '—';
+        slEl.textContent    = data.stop_loss!=null ? Number(data.stop_loss).toFixed(5) : '—';
+        rrEl.textContent    = data.risk_reward!=null ? data.risk_reward : '—';
 
         // Candles
         const bars = (data.ohlc||[]).map(d => ({
@@ -141,10 +167,8 @@
           const pts = [];
           (list||[]).forEach(g => {
             const s = Number(g.start), e = Number(g.end), lo = Number(g.low), hi = Number(g.high);
-            pts.push({ time:s, value:lo });
-            pts.push({ time:s, value:hi });
-            pts.push({ time:e, value:hi });
-            pts.push({ time:e, value:lo });
+            pts.push({ time:s, value:lo }); pts.push({ time:s, value:hi });
+            pts.push({ time:e, value:hi }); pts.push({ time:e, value:lo });
           });
           return pts;
         }
@@ -153,25 +177,17 @@
         fvgGreen.setData(fvgToAreaPoints(bulls));
         fvgRed.setData(fvgToAreaPoints(bears));
 
-        // Swing points (as thin guide lines)
+        // Swing points
         swingHighs.setData((data.swings?.highs||[]).map(p=>({ time:Number(p.time), value:Number(p.price) })));
-        swingLows.setData((data.swings?.lows||[]).map(p=>({ time:Number(p.time), value:Number(p.price) })));
-
+        swingLows .setData((data.swings?.lows ||[]).map(p=>({ time:Number(p.time), value:Number(p.price) })));
       }catch(e){
         errBox.style.display='block';
-        errBox.textContent = 'API/Parse error: ' + e;
+        errBox.textContent = 'Fetch failed: ' + e;
       }
     }
 
-    function buildUrl(){
-      const asset = assetSel.value;
-      const timeframe = periodSel.value; // backend expects "timeframe"
-      const demo = demoChk.checked ? '&demo=1' : '';
-      return `/api/signal?asset=${encodeURIComponent(asset)}&timeframe=${encodeURIComponent(timeframe)}&range=${encodeURIComponent(currentRange)}${demo}`;
-    }
-
     // Init
-    setRange('1D');          // default zoom
+    setRange('1D');                 // default zoom
     timer = setInterval(refresh, 5000);  // 5s auto-refresh
     refresh();
   </script>
